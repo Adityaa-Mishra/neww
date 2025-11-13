@@ -58,9 +58,9 @@
       right: 0;
       bottom: 0;
       background: 
-        radial-gradient(circle at 20% 50%, rgba(0, 217, 255, 0.1) 0%, transparent 50%),
-        radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
-        radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.05) 0%, transparent 50%);
+        radial-gradient(circle at 20% 50%, rgba(0, 217, 255, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
       animation: gradientShift 15s ease-in-out infinite;
       pointer-events: none;
       z-index: -1;
@@ -69,21 +69,21 @@
     @keyframes gradientShift {
       0% {
         background: 
-          radial-gradient(circle at 20% 50%, rgba(0, 217, 255, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.05) 0%, transparent 50%);
+          radial-gradient(circle at 20% 50%, rgba(0, 217, 255, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
       }
       50% {
         background: 
-          radial-gradient(circle at 60% 40%, rgba(0, 217, 255, 0.15) 0%, transparent 50%),
-          radial-gradient(circle at 30% 70%, rgba(139, 92, 246, 0.12) 0%, transparent 50%),
-          radial-gradient(circle at 70% 60%, rgba(236, 72, 153, 0.08) 0%, transparent 50%);
+          radial-gradient(circle at 60% 40%, rgba(0, 217, 255, 0.2) 0%, transparent 50%),
+          radial-gradient(circle at 30% 70%, rgba(139, 92, 246, 0.18) 0%, transparent 50%),
+          radial-gradient(circle at 70% 60%, rgba(236, 72, 153, 0.12) 0%, transparent 50%);
       }
       100% {
         background: 
-          radial-gradient(circle at 20% 50%, rgba(0, 217, 255, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.05) 0%, transparent 50%);
+          radial-gradient(circle at 20% 50%, rgba(0, 217, 255, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
       }
     }
 
@@ -98,9 +98,9 @@
       pointer-events: none;
       z-index: -1;
       background-image: 
-        radial-gradient(2px 2px at 20px 30px, rgba(0, 217, 255, 0.5), rgba(0, 217, 255, 0)),
-        radial-gradient(2px 2px at 60px 70px, rgba(139, 92, 246, 0.5), rgba(139, 92, 246, 0)),
-        radial-gradient(1px 1px at 50px 50px, rgba(236, 72, 153, 0.5), rgba(236, 72, 153, 0));
+        radial-gradient(2px 2px at 20px 30px, rgba(0, 217, 255, 0.6), rgba(0, 217, 255, 0)),
+        radial-gradient(2px 2px at 60px 70px, rgba(139, 92, 246, 0.6), rgba(139, 92, 246, 0)),
+        radial-gradient(1px 1px at 50px 50px, rgba(236, 72, 153, 0.6), rgba(236, 72, 153, 0));
       background-repeat: repeat;
       background-size: 200px 200px;
       animation: floatParticles 20s linear infinite;
@@ -603,7 +603,7 @@
       }
 
       .header h1 {
-        font-size: 26px;
+        font-size: 32px;
       }
 
       #dropzone {
@@ -643,7 +643,7 @@
 
     <div class="upload-section">
       <label id="dropzone" class="upload-area">
-        <input type="file" id="fileInput" />
+        <input type="file" id="fileInput" name="file" />
         <div class="upload-icon">
           <svg viewBox="0 0 24 24">
             <path d="M12 2v14m-7-7l7-7 7 7M5 20h14a1 1 0 011 1v2H4v-2a1 1 0 011-1z"/>
@@ -657,15 +657,18 @@
     </div>
 
     <div class="controls">
-      <select id="targetFormat" class="format-select">
+      <select id="targetFormat" name="target" class="format-select">
         <option value="">Choose format</option>
         <option value="png">.png</option>
         <option value="jpg">.jpg</option>
         <option value="jpeg">.jpeg</option>
         <option value="pdf">.pdf</option>
-        <option value="txt">.txt</option>
+        <option value="docx">.docx (Word)</option>
+        <option value="doc">.doc (Word)</option>
+        <option value="pptx">.pptx (PowerPoint)</option>
+        <option value="ppt">.ppt (PowerPoint)</option>
       </select>
-      <button id="convertBtn" disabled>Convert</button>
+      <button id="convertBtn" type="button">Convert</button>
     </div>
 
     <div class="progress-section">
@@ -722,7 +725,6 @@
     function resetProgress() {
       progressBar.style.width = '0%';
       statusText.textContent = 'Ready';
-      statusText.innerHTML = 'Ready';
     }
 
     function updateProgress(percent) {
