@@ -10,7 +10,7 @@ from pdf2image import convert_from_path
 from docx import Document
 from pptx import Presentation
 from pdf2docx import Converter
-import pythoncom
+# import pythoncom
 
 # Initialize Flask
 app = Flask(__name__)
@@ -66,7 +66,7 @@ def convert_file():
     temp_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     uploaded_file.save(temp_path)
 
-    pythoncom.CoInitialize()
+    # pythoncom.CoInitialize()
 
     # ==============================
     # IMAGE → PNG/JPG/PDF/DOCX/PPTX
