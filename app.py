@@ -1,249 +1,223 @@
+import os
+import io
+import zipfile
+import tempfile
+import logging
 from flask import Flask, request, send_file, render_template
 from werkzeug.utils import secure_filename
 from PIL import Image
-from docx import Document
-from docx.shared import Inches
-from pptx import Presentation
-from pptx.util import Inches as PPTInches
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-import io
-import os
-import sys
-import logging
-
-# Additional imports for new conversions
-from pdf2docx import Converter
 from pdf2image import convert_from_path
+from docx import Document
+from pptx import Presentation
+from pdf2docx import Converter
+import pythoncom
 
-# Setup logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
-)
-logger = logging.getLogger(__name__)
-
+# Initialize Flask
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
 
 UPLOAD_FOLDER = "uploads"
 CONVERTED_FOLDER = "converted"
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(CONVERTED_FOLDER, exist_ok=True)
+
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["CONVERTED_FOLDER"] = CONVERTED_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+
+def allowed_file(filename):
+    allowed_extensions = {
+        ".jpg", ".jpeg", ".png", ".pdf", ".docx", ".doc", ".pptx", ".ppt"
+    }
+    return any(filename.lower().endswith(ext) for ext in allowed_extensions)
+
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
-@app.route("/convert", methods=["POST", "OPTIONS"], strict_slashes=False)
+
+@app.route("/convert", methods=["POST"])
 def convert_file():
-    if request.method == "OPTIONS":
-        return ('', 200)
-
     if "file" not in request.files:
-        return "No file uploaded", 400
+        return "No file uploaded.", 400
 
-    file = request.files["file"]
-    target = request.form.get("target", "").strip().lower()
+    uploaded_file = request.files["file"]
+    target_format = request.form.get("target")
 
-    if not file or file.filename == "":
-        return "No selected file", 400
-    if not target:
-        return "No target format specified", 400
+    if not uploaded_file:
+        return "No file selected.", 400
 
-    filename = secure_filename(file.filename)
-    name, ext = os.path.splitext(filename)
-    ext = ext.lower()
+    if not target_format:
+        return "Target format not selected.", 400
 
-    logger.info(f"=== NEW CONVERSION REQUEST ===")
-    logger.info(f"File: {filename} | Ext: {ext} | Target: {target}")
+    if not allowed_file(uploaded_file.filename):
+        return "File type not allowed.", 400
 
-    temp_path = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(temp_path)
-    logger.info(f"File saved: {temp_path}")
+    filename = secure_filename(uploaded_file.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    name = os.path.splitext(filename)[0]
+    target_format = target_format.lower()
 
-    try:
-        # ===== IMAGE CONVERSIONS =====
-        if ext in [".jpg", ".jpeg", ".png"]:
-            img = Image.open(temp_path)
+    temp_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    uploaded_file.save(temp_path)
 
-            # Image → Image
-            if target in ["png", "jpg", "jpeg"]:
-                logger.info(f"Image {ext} → {target}")
-                if target in ["jpg", "jpeg"] and img.mode in ('RGBA', 'LA', 'P'):
-                    bg = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    bg.paste(img, mask=img.split()[-1] if 'A' in img.mode else None)
-                    img = bg
-                out = io.BytesIO()
-                fmt = "JPEG" if target in ["jpg", "jpeg"] else target.upper()
-                img.save(out, format=fmt)
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.{target}")
+    pythoncom.CoInitialize()
 
-            # Image → PDF
-            elif target == "pdf":
-                logger.info("Image → PDF")
-                if img.mode in ('RGBA', 'LA', 'P'):
-                    bg = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    bg.paste(img, mask=img.split()[-1] if 'A' in img.mode else None)
-                    img = bg
-                out = io.BytesIO()
-                img.save(out, format="PDF")
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.pdf")
+    # ==============================
+    # IMAGE → PNG/JPG/PDF/DOCX/PPTX
+    # ==============================
+    if ext in [".jpg", ".jpeg", ".png"]:
+        img = Image.open(temp_path).convert("RGB")
 
-            # Image → Word
-            elif target in ["docx", "doc"]:
-                logger.info("Image → Word")
-                doc = Document()
-                doc.add_heading(f'Image: {filename}', 0)
-                try:
-                    doc.add_picture(temp_path, width=Inches(6))
-                except Exception as e:
-                    doc.add_paragraph(f"(Image could not be embedded: {e})")
-                out = io.BytesIO()
-                doc.save(out)
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.{target}")
+        if target_format in ["jpg", "jpeg", "png"]:
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.{target_format}")
+            img.save(out_path, target_format.upper())
+            return send_file(out_path, as_attachment=True)
 
-            # Image → PowerPoint
-            elif target in ["pptx", "ppt"]:
-                logger.info("Image → PowerPoint")
-                prs = Presentation()
-                slide = prs.slides.add_slide(prs.slide_layouts[6])
-                slide.shapes.add_picture(temp_path, PPTInches(0.5), PPTInches(0.5), width=PPTInches(9))
-                out = io.BytesIO()
-                prs.save(out)
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.{target}")
+        elif target_format == "pdf":
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.pdf")
+            img.save(out_path, "PDF", resolution=100.0)
+            return send_file(out_path, as_attachment=True)
 
-        # ===== WORD CONVERSIONS =====
-        elif ext in [".docx", ".doc"]:
-            doc = Document(temp_path)
+        elif target_format == "docx":
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.docx")
+            doc = Document()
+            doc.add_picture(temp_path)
+            doc.save(out_path)
+            return send_file(out_path, as_attachment=True)
 
-            # Word → Word
-            if target in ["docx", "doc"]:
-                out = io.BytesIO()
-                doc.save(out)
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.{target}")
+        elif target_format == "pptx":
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.pptx")
+            ppt = Presentation()
+            slide = ppt.slides.add_slide(ppt.slide_layouts[5])
+            slide.shapes.add_picture(temp_path, 0, 0, width=ppt.slide_width)
+            ppt.save(out_path)
+            return send_file(out_path, as_attachment=True)
 
-            # Word → PDF
-            elif target == "pdf":
-                out = io.BytesIO()
-                c = canvas.Canvas(out, pagesize=letter)
-                y = 750
-                for para in doc.paragraphs:
-                    if para.text.strip():
-                        c.drawString(50, y, para.text[:100])
-                        y -= 15
-                        if y < 50:
-                            c.showPage()
-                            y = 750
-                c.save()
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.pdf")
+    # ==============================
+    # PDF → DOCX/PPTX + (NEW) PNG/JPG CONVERSION
+    # ==============================
+    elif ext == ".pdf":
 
-            # Word → PowerPoint
-            elif target in ["pptx", "ppt"]:
-                prs = Presentation()
-                for para in doc.paragraphs:
-                    if para.text.strip():
-                        slide = prs.slides.add_slide(prs.slide_layouts[1])
-                        slide.shapes.title.text = para.text[:60]
-                out = io.BytesIO()
-                prs.save(out)
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.{target}")
+        # ------------------------------------------------------
+        # ★ NEW LOGIC ADDED HERE EXACTLY WHERE YOU WANTED ★
+        # ------------------------------------------------------
+        if target_format in ["png", "jpg", "jpeg"]:
+            logger.info(f"PDF → {target_format}")
 
-        # ===== POWERPOINT CONVERSIONS =====
-        elif ext in [".pptx", ".ppt"]:
-            prs = Presentation(temp_path)
+            images = convert_from_path(temp_path)
 
-            # PowerPoint → PowerPoint
-            if target in ["pptx", "ppt"]:
-                out = io.BytesIO()
-                prs.save(out)
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.{target}")
+            # single page PDF → return direct image
+            if len(images) == 1:
+                fmt = "PNG" if target_format == "png" else "JPEG"
+                buffer = io.BytesIO()
+                images[0].save(buffer, format=fmt)
+                buffer.seek(0)
+                return send_file(buffer,
+                                 as_attachment=True,
+                                 download_name=f"{name}.{target_format}")
 
-            # PowerPoint → PDF
-            elif target == "pdf":
-                out = io.BytesIO()
-                c = canvas.Canvas(out, pagesize=letter)
-                for i, slide in enumerate(prs.slides, 1):
-                    c.drawString(50, 750, f"Slide {i}")
-                    y = 730
-                    for shape in slide.shapes:
-                        if hasattr(shape, "text") and shape.text.strip():
-                            c.drawString(60, y, shape.text[:90])
-                            y -= 20
-                    c.showPage()
-                c.save()
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.pdf")
+            # multi-page → return ZIP
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+                for i, img in enumerate(images):
+                    img_buffer = io.BytesIO()
+                    fmt = "PNG" if target_format == "png" else "JPEG"
+                    img.save(img_buffer, format=fmt)
+                    img_buffer.seek(0)
+                    zip_file.writestr(
+                        f"{name}_page_{i+1}.{target_format}",
+                        img_buffer.getvalue()
+                    )
+            zip_buffer.seek(0)
+            return send_file(zip_buffer,
+                             as_attachment=True,
+                             download_name=f"{name}_{target_format}s.zip",
+                             mimetype="application/zip")
 
-            # PowerPoint → Word
-            elif target in ["docx", "doc"]:
-                doc = Document()
-                doc.add_heading(f'Converted from {filename}', 0)
-                for i, slide in enumerate(prs.slides, 1):
-                    doc.add_heading(f'Slide {i}', level=1)
-                    for shape in slide.shapes:
-                        if hasattr(shape, "text") and shape.text.strip():
-                            doc.add_paragraph(shape.text)
-                out = io.BytesIO()
-                doc.save(out)
-                out.seek(0)
-                return send_file(out, as_attachment=True, download_name=f"{name}.{target}")
-
-        # ===== PDF CONVERSIONS =====
-        elif ext == ".pdf":
-            # PDF → Word
-            if target in ["docx", "doc"]:
-                logger.info("PDF → Word")
-                word_path = os.path.join(CONVERTED_FOLDER, f"{name}.docx")
-                cv = Converter(temp_path)
-                cv.convert(word_path, start=0, end=None)
-                cv.close()
-                return send_file(word_path, as_attachment=True, download_name=f"{name}.docx")
-
-            # PDF → PowerPoint
-            elif target in ["pptx", "ppt"]:
-                logger.info("PDF → PowerPoint")
-                slides = convert_from_path(temp_path)
-                prs = Presentation()
-                for slide_img in slides:
-                    slide = prs.slides.add_slide(prs.slide_layouts[6])
-                    temp_img = os.path.join(CONVERTED_FOLDER, "temp_slide.png")
-                    slide_img.save(temp_img, 'PNG')
-                    slide.shapes.add_picture(temp_img, PPTInches(0.5), PPTInches(0.5), width=PPTInches(9))
-                    os.remove(temp_img)
-                pptx_path = os.path.join(CONVERTED_FOLDER, f"{name}.pptx")
-                prs.save(pptx_path)
-                return send_file(pptx_path, as_attachment=True, download_name=f"{name}.pptx")
-
-        # ===== UNSUPPORTED =====
-        msg = f"Unsupported conversion: {ext} → {target}"
-        logger.warning(msg)
-        return msg, 400
-
-    except Exception as e:
-        logger.error(f"Conversion failed: {e}", exc_info=True)
-        return f"Error: {str(e)}", 500
-
-    finally:
-        if os.path.exists(temp_path):
+        # normal PDF → DOCX/PPTX
+        if target_format in ["docx", "doc", "pptx", "ppt"]:
             try:
-                os.remove(temp_path)
-                logger.info(f"Cleaned: {temp_path}")
-            except Exception as e:
-                logger.warning(f"Cleanup failed: {e}")
+                out_path = os.path.join(CONVERTED_FOLDER, f"{name}.{target_format}")
+                cv = Converter(temp_path)
+                cv.convert(out_path)
+                cv.close()
+                return send_file(out_path, as_attachment=True)
+            except Exception:
+                return "Error converting PDF. Install poppler correctly.", 500
+
+    # ==============================
+    # WORD → PDF/PPT
+    # ==============================
+    elif ext in [".doc", ".docx"]:
+        try:
+            doc = Document(temp_path)
+        except:
+            return "Error reading .doc file. Convert to .docx first.", 400
+
+        if target_format == "pdf":
+            images = []
+            for p in doc.paragraphs:
+                if p.text.strip():
+                    img = Image.new("RGB", (800, 200), "white")
+                    images.append(img)
+
+            if not images:
+                return "Word file has no visible text.", 400
+
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.pdf")
+            images[0].save(out_path, "PDF", save_all=True, append_images=images[1:])
+            return send_file(out_path, as_attachment=True)
+
+        elif target_format in ["ppt", "pptx"]:
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.pptx")
+            ppt = Presentation()
+            slide = ppt.slides.add_slide(ppt.slide_layouts[1])
+            text_box = slide.shapes.add_textbox(100, 100, 500, 400)
+            tf = text_box.text_frame
+            tf.text = "\n".join([p.text for p in doc.paragraphs])
+            ppt.save(out_path)
+            return send_file(out_path, as_attachment=True)
+
+    # ==============================
+    # PPT → PDF/WORD
+    # ==============================
+    elif ext in [".ppt", ".pptx"]:
+        ppt = Presentation(temp_path)
+
+        if target_format == "pdf":
+            images = [
+                Image.new("RGB", (ppt.slide_width, ppt.slide_height), "white")
+                for _ in ppt.slides
+            ]
+
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.pdf")
+            images[0].save(out_path, "PDF", save_all=True, append_images=images[1:])
+            return send_file(out_path, as_attachment=True)
+
+        elif target_format in ["doc", "docx"]:
+            out_path = os.path.join(CONVERTED_FOLDER, f"{name}.docx")
+            doc = Document()
+            for slide in ppt.slides:
+                doc.add_paragraph(
+                    "\n".join([
+                        shape.text for shape in slide.shapes
+                        if hasattr(shape, "text")
+                    ])
+                )
+            doc.save(out_path)
+            return send_file(out_path, as_attachment=True)
+
+    # ==============================
+    # Unsupported
+    # ==============================
+    return f"Unsupported conversion: {ext} → {target_format}", 400
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True)
