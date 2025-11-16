@@ -708,6 +708,9 @@
     const resultName = document.getElementById('resultName');
     const resultMeta = document.getElementById('resultMeta');
 
+    // API base URL — point frontend to the hosted backend
+    const API_BASE = 'https://neww-3-xv91.onrender.com';
+
     let currentFile = null;
 
     // ===== HELPERS =====
@@ -800,8 +803,9 @@
       try {
         updateProgress(30);
 
-        const resp = await fetch('/convert', {
+        const resp = await fetch(`${API_BASE}/convert`, {
           method: 'POST',
+          mode: 'cors',
           body: form,
         });
 
