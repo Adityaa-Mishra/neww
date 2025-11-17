@@ -3,6 +3,7 @@ import io
 import zipfile
 import logging
 import subprocess
+from flask_cors import CORS
 from flask import Flask, request, send_file, render_template, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image
@@ -13,6 +14,9 @@ from pdf2docx import Converter
 
 # Initialize Flask
 app = Flask(__name__)
+# Enable CORS for all routes, allowing requests from any origin.
+# For production, you might want to restrict this to your frontend's domain.
+CORS(app)
 
 UPLOAD_FOLDER = "uploads"
 
@@ -74,11 +78,8 @@ def home():
     return render_template("index.html")
 
 
-@app.route("/convert", methods=["POST", "OPTIONS"])
+@app.route("/convert", methods=["POST"])
 def convert_file():
-    if request.method == "OPTIONS":
-        return '', 200
-    
     if "file" not in request.files:
         return "No file uploaded.", 400
 
