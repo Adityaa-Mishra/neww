@@ -709,9 +709,9 @@
     const resultMeta = document.getElementById('resultMeta');
 
     // API base URL — point frontend to the hosted backend
-    const API_BASE = 'https://neww-3-xv91.onrender.com';
+    const API_BASE = 'https://neww-3-xv91.onrender.com'; // This should be a const
 
-    let currentFile = null;
+    let currentFile = null; // This needs to be `let` as it changes
 
     // ===== HELPERS =====
     function humanBytes(n) {
@@ -800,6 +800,12 @@
       convertBtn.classList.add('loading');
       resultArea.classList.remove('show');
 
+      // If the server is sleeping, it can take a while to wake up.
+      // Let's inform the user if it takes longer than 3 seconds.
+      const wakeupTimeout = setTimeout(() => {
+        setStatusLoading('Server is waking up, please wait...');
+      }, 3000);
+
       try {
         updateProgress(30);
 
@@ -808,6 +814,9 @@
           mode: 'cors',
           body: form,
         });
+
+        // Server responded, clear the wakeup message timeout
+        clearTimeout(wakeupTimeout);
 
         updateProgress(70);
 
@@ -841,10 +850,18 @@
         resultArea.classList.add('show');
 
       } catch (err) {
-        console.error(err);
-        setStatusNormal('✗ Error: ' + (err.message || 'Conversion failed'));
+        // Log the full technical error for debugging purposes
+        console.error('Conversion API Error:', err);
+
+        // Show a more user-friendly message based on the error type
+        if (err instanceof TypeError && err.message === 'Failed to fetch') {
+          setStatusNormal('✗ Error: Cannot connect to the conversion service. It may be offline.');
+        } else {
+          setStatusNormal('✗ Error: ' + (err.message || 'Conversion failed'));
+        }
         updateProgress(0);
       } finally {
+        clearTimeout(wakeupTimeout); // Ensure timeout is cleared on error too
         convertBtn.disabled = false;
         convertBtn.classList.remove('loading');
       }

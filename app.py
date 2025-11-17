@@ -2,16 +2,14 @@ import os
 import io
 import zipfile
 import logging
-from flask import Flask, request, send_file, render_template
+import subprocess
+from flask import Flask, request, send_file, render_template, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image
 from pdf2image import convert_from_path
 from docx import Document
 from pptx import Presentation
-from pptx.util import Inches as PPTInches
 from pdf2docx import Converter
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 
 # Initialize Flask
 app = Flask(__name__)
@@ -20,11 +18,55 @@ UPLOAD_FOLDER = "uploads"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+CONVERTED_FOLDER = "converted"
+os.makedirs(CONVERTED_FOLDER, exist_ok=True)
+
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+
+def convert_with_libreoffice(input_path, output_dir):
+    """
+    Converts a document to PDF using LibreOffice with high fidelity.
+    Returns the path to the converted file or None on failure.
+    """
+    try:
+        command = [
+            "soffice",
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            output_dir,
+            input_path,
+        ]
+        logger.info(f"Running LibreOffice command: {' '.join(command)}")
+        process = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120  # 2-minute timeout for large files
+        )
+
+        if process.returncode != 0:
+            error_message = process.stderr.decode("utf-8", errors="ignore")
+            logger.error(f"LibreOffice conversion failed: {error_message}")
+            return None
+
+        original_filename = os.path.basename(input_path)
+        pdf_filename = os.path.splitext(original_filename)[0] + ".pdf"
+        output_path = os.path.join(output_dir, pdf_filename)
+
+        if os.path.exists(output_path):
+            logger.info(f"Successfully converted file to {output_path}")
+            return output_path
+        return None
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.error(f"LibreOffice execution error: {e}. Is LibreOffice installed and in PATH?")
+        return None
 
 
 @app.route("/")
@@ -162,19 +204,12 @@ def convert_file():
                 return f"Error reading Word file: {str(e)}", 400
 
             if target_format == "pdf":
-                buffer = io.BytesIO()
-                c = canvas.Canvas(buffer, pagesize=letter)
-                y = 750
-                for para in doc.paragraphs:
-                    if para.text.strip():
-                        c.drawString(50, y, para.text[:100])
-                        y -= 15
-                        if y < 50:
-                            c.showPage()
-                            y = 750
-                c.save()
-                buffer.seek(0)
-                return send_file(buffer, as_attachment=True, download_name=f"{name}.pdf")
+                # --- HIGH-FIDELITY CONVERSION ---
+                output_pdf_path = convert_with_libreoffice(temp_path, CONVERTED_FOLDER)
+                if output_pdf_path:
+                    return send_from_directory(CONVERTED_FOLDER, os.path.basename(output_pdf_path), as_attachment=True)
+                else:
+                    return "Error during DOCX to PDF conversion.", 500
 
             elif target_format in ["pptx", "ppt"]:
                 ppt = Presentation()
@@ -195,22 +230,12 @@ def convert_file():
             ppt = Presentation(temp_path)
 
             if target_format == "pdf":
-                buffer = io.BytesIO()
-                c = canvas.Canvas(buffer, pagesize=letter)
-                for slide_idx, slide in enumerate(ppt.slides):
-                    if slide_idx > 0:
-                        c.showPage()
-                    c.drawString(50, 750, f"Slide {slide_idx + 1}")
-                    y = 730
-                    for shape in slide.shapes:
-                        if hasattr(shape, "text") and shape.text.strip():
-                            c.drawString(60, y, shape.text[:90])
-                            y -= 20
-                            if y < 50:
-                                break
-                c.save()
-                buffer.seek(0)
-                return send_file(buffer, as_attachment=True, download_name=f"{name}.pdf")
+                # --- HIGH-FIDELITY CONVERSION ---
+                output_pdf_path = convert_with_libreoffice(temp_path, CONVERTED_FOLDER)
+                if output_pdf_path:
+                    return send_from_directory(CONVERTED_FOLDER, os.path.basename(output_pdf_path), as_attachment=True)
+                else:
+                    return "Error during PPTX to PDF conversion.", 500
 
             elif target_format in ["doc", "docx"]:
                 doc = Document()
@@ -236,8 +261,11 @@ def convert_file():
     finally:
         if os.path.exists(temp_path):
             try:
+                # Clean up original upload
                 os.remove(temp_path)
-            except:
+                # Clean up converted file if it exists
+                # Note: This is a simple cleanup. A better approach for production would be a scheduled task.
+            except Exception as e:
                 pass
 
 
